@@ -1,0 +1,53 @@
+#!/usr/bin/python3
+
+from scapy.all import srp, Ether, ARP, ls, IP, ICMP, TCP
+import threading
+
+IPList = []
+MACList = []
+threadList = []
+
+ans, unans = srp(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst = "192.168.178.0/24"), timeout = 3, iface = "enp0s9", verbose = False)
+
+for i in ans:
+    tmp = i[1]
+    if tmp.haslayer(ARP):
+        IPList.append(tmp[ARP].psrc)
+        MACList.append(tmp[ARP].hwsrc)
+
+portsMatrix = [[None] * 65536 for _ in range(len(IPList))]
+
+def scan1024Ports(index, firstPort):
+    lastPort = firstPort + 32767
+    resPairsList, unans = srp(Ether(dst=MACList[index])/IP(dst=IPList[index])/TCP(flags="S", dport=(firstPort, lastPort), sport=44444), iface = "enp0s9", timeout = 2, verbose = False)
+    code = None
+    for pairs in resPairsList:
+        response = pairs[1]
+        if response is None:
+            code = 4
+        elif response.haslayer(ICMP):
+            code = 3
+        elif response.haslayer(TCP):
+            if response[TCP].flags == 0x14:
+                code = 1
+            else:
+                code = 0
+        portsMatrix[index][firstPort] = code
+        firstPort += 1
+
+for i in range(len(IPList)):
+    for port in range(0, 65536, 32768):
+        t = threading.Thread(target = scan1024Ports, args = (i, port))
+    t.start()
+    threadList.append(t)
+
+for t in threadList:
+    t.join()
+
+tempIndex = 0
+for curIP in IPList:
+    print(f"Offene Ports für {curIP}:")
+    for port in range(65536):
+        if portsMatrix[tempIndex][port] == 0:
+            print(statusCode)
+    tempIndex += 1
